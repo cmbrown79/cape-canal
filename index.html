@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Cape Canal: splashNbash — βv0.5</title>
+<title>Cape Canal: splashNbash — βv0.6</title>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
   html,body { width:100%; height:100%; overflow:hidden; background:#0b2a3f; font-family:'Segoe UI', system-ui, sans-serif; }
@@ -68,6 +68,18 @@
   #mapcard .mc-sub { margin-top:3px; font-size:12px; font-weight:800; letter-spacing:.16em; color:#ffd23e; }
   #mapcard .mc-note { margin-top:9px; font-size:13px; font-weight:600; line-height:1.5; color:rgba(225,242,255,.92); }
   #mapcard .btn { margin-top:13px; padding:11px 34px; font-size:17px; }
+  #select { display:none; position:fixed; bottom:26px; left:50%; transform:translateX(-50%); z-index:26; width:min(680px,94vw);
+    background:rgba(4,30,52,.78); backdrop-filter: blur(4px); border:2px solid rgba(255,210,62,.55); border-radius:18px;
+    color:#fff; text-align:center; padding:16px 18px 18px; }
+  .sel-title { font-weight:900; letter-spacing:.14em; font-size:15px; margin-bottom:11px; }
+  #cards { display:flex; gap:8px; margin-bottom:13px; }
+  .card { flex:1; background:rgba(255,255,255,.07); border:1.5px solid rgba(255,255,255,.18); border-radius:12px; padding:9px 6px; cursor:pointer; transition:transform .15s, border-color .15s, background .15s; }
+  .card.sel { border-color:#ffd23e; background:rgba(255,210,62,.15); transform:translateY(-3px); }
+  .card .cn { font-weight:900; font-size:12.5px; }
+  .card .ct { color:#ffd23e; font-size:10.5px; font-weight:700; margin:2px 0 4px; }
+  .card .cp { color:#cfe8f5; font-size:10.5px; line-height:1.35; }
+  #btn-rider { margin-top:2px; padding:12px 30px; font-size:16px; }
+  @media (max-width:640px) { #cards { flex-wrap:wrap; } .card { flex:1 1 42%; } }
   @media (pointer:coarse) { #touch { display:flex; } }
   @media (max-width:640px) {
     #topstack { width:56vw; }
@@ -117,7 +129,7 @@
     <b>On your phone:</b> allow motion when asked — you drive by <b>tilt</b>, and it learns how you hold your phone during the countdown, so hold it the way you'll race. Lean <b>left/right</b> to steer (about 13&deg; is full lock). Pitch the <b>top edge toward the floor</b> to accelerate, <b>bottom edge toward the floor</b> to brake. Lean + <b>PUNCH</b> / <b>KICK</b> strikes to that side. The <b>&#10227;</b> button re-centers your hold any time.<br>
     Fill the gold <b>SUPER</b> bar by fighting and grabbing things, then hit the gold capsule (or <b>F</b>): top speed, shark-proof, double strikes. Grab a glowing crate to hold an item — <b>USE</b> (or <b>E</b>) fires it. Mind your <b>HULL</b>: hard hits and the shark cost you — zero means dead in the water until Sea Tow arrives.<br>
     Ram the <b>pirate</b> &middot; bash <b>dock posts</b> &middot; grab <b>flour sacks</b> &middot; mind the <b>shark</b><br>
-    Every race opens from the sky: the whole course overhead, then you <b>DROP IN</b> to the start. 3 laps of the Cape Coral Gauntlet — a real 3.4 km loop of the actual canal grid. First to finish wins the canal.
+    Every race opens from the sky: the whole course overhead, then you <b>DROP IN</b> to the starting grid and pick your rider — every local legend carries a perk. 3 laps of the Cape Coral Gauntlet — a real 3.4 km loop of the actual canal grid. First to finish wins the canal.
   </div>
   <button class="btn" id="btn-start">RIDE</button>
   <div id="tilt-status">On a phone, tapping RIDE asks for motion access. The HUD always shows <b>TILT</b> or <b>TOUCH</b> — whichever is actually driving.</div>
@@ -131,9 +143,15 @@
 
 <div id="mapcard">
   <div class="mc-name">CAPE CORAL GAUNTLET</div>
-  <div class="mc-sub">SALTWATER &middot; 3 LAPS &middot; RIVAL: THE PIRATE</div>
+  <div class="mc-sub">SALTWATER &middot; 3 LAPS &middot; RIVAL AWAITS</div>
   <div class="mc-note">The gold line is your course — and it's REAL: 3.4 km of actual Cape Coral canals, traced from the open map. Grid straights, right-angle corners, one river bend.</div>
   <button class="btn" id="btn-drop">DROP IN</button>
+</div>
+
+<div id="select">
+  <div class="sel-title">CHOOSE YOUR RIDER</div>
+  <div id="cards"></div>
+  <button class="btn" id="btn-rider">RIDE AS BIG CHAINS</button>
 </div>
 
 <script>
@@ -250,6 +268,20 @@ function nearestOnCourse(x, z, hint){
   var smp = COURSE[best];
   return { i: best, u: best / NS, lat: (x - smp.x) * smp.nx + (z - smp.z) * smp.nz, nx: smp.nx, nz: smp.nz };
 }
+// The real course passes near itself (parallel legs, tight corners). A prop
+// placed for one leg can land in ANOTHER leg's water — mid-course seawalls.
+// This asks: does (x, z) fall inside the channel of some non-local part of
+// the course (ignoring samples near selfI, the prop's own leg)?
+function inOtherWater(x, z, selfI){
+  var R2 = (HALF_W - 0.5) * (HALF_W - 0.5);
+  for(var k = 0; k < NS; k += 4){
+    var dI = Math.abs(k - selfI); if(dI > NS / 2) dI = NS - dI;
+    if(dI < 80) continue;
+    var s = COURSE[k], dx = x - s.x, dz = z - s.z;
+    if(dx * dx + dz * dz < R2) return true;
+  }
+  return false;
+}
 // ============================== RENDERER ==============================
 var container = document.getElementById('game');
 var renderer = new THREE.WebGLRenderer({ antialias:true });
@@ -311,21 +343,27 @@ var waterMat = new THREE.MeshPhongMaterial({ color:0x0e9db8, shininess:140, spec
 var water = new THREE.Mesh(waterGeo, waterMat);
 water.position.y = 0; water.receiveShadow = true;
 scene.add(water);
-// Seawalls — white stepped blocks along both edges
+// Seawalls — white stepped blocks along both edges. Blocks that would land
+// in another leg's water (parallel stretches, tight corners) are culled, so
+// the walls only ever line the bank of their own canal.
 var wallGeo = new THREE.BoxGeometry(3.4, 1.1, 1.1);
 var wallMat = mat(0xf2f4f4);
-var walls = new THREE.InstancedMesh(wallGeo, wallMat, SEG*2);
 var dummy = new THREE.Object3D();
+var wallMats = [];
 for(i=0;i<SEG;i++){
   th = (i/SEG)*Math.PI*2;
-  [HALF_W+0.9, -(HALF_W+0.9)].forEach(function(lat, k){
+  var selfI = Math.round(i/SEG*NS);
+  [HALF_W+0.9, -(HALF_W+0.9)].forEach(function(lat){
     var p = centerPoint(th, lat), t = tangentAt(th);
+    if(inOtherWater(p.x, p.z, selfI)) return;
     dummy.position.set(p.x, 0.35, p.z);
     dummy.rotation.set(0, -Math.atan2(t.z, t.x), 0);
     dummy.updateMatrix();
-    walls.setMatrixAt(i*2+k, dummy.matrix);
+    wallMats.push(dummy.matrix.clone());
   });
 }
+var walls = new THREE.InstancedMesh(wallGeo, wallMat, wallMats.length);
+wallMats.forEach(function(m, idx){ walls.setMatrixAt(idx, m); });
 walls.receiveShadow = true;
 scene.add(walls);
 // Houses (pastel, pyramid roofs) — inner island + outer bank
@@ -345,11 +383,13 @@ function house(x, z, ry){
 for(i=0;i<14;i++){
   th = (i/14)*Math.PI*2 + rand(-0.1,0.1);
   var hp = centerPoint(th, -(HALF_W + rand(7,13)));
+  if(inOtherWater(hp.x, hp.z, Math.round(th/(Math.PI*2)*NS))) continue;
   house(hp.x, hp.z, -th + Math.PI/2 + rand(-0.2,0.2));
 }
 for(i=0;i<16;i++){
   th = (i/16)*Math.PI*2 + rand(-0.08,0.08);
   var hp2 = centerPoint(th, HALF_W + rand(8,15));
+  if(inOtherWater(hp2.x, hp2.z, Math.round(th/(Math.PI*2)*NS))) continue;
   house(hp2.x, hp2.z, -th - Math.PI/2 + rand(-0.2,0.2));
 }
 // Palms — stacked-box trunks + box fronds
@@ -372,6 +412,7 @@ function palm(x, z){
 for(i=0;i<26;i++){
   th = Math.random()*Math.PI*2;
   var pp = centerPoint(th, (Math.random()<0.5?-1:1)*(HALF_W + rand(2.5,6)));
+  if(inOtherWater(pp.x, pp.z, Math.round(th/(Math.PI*2)*NS))) continue;
   palm(pp.x, pp.z);
 }
 // Clouds — white box clusters
@@ -396,7 +437,11 @@ for(i=0;i<9;i++){
 })();
 // Billboard on the main straight (blank panel — first sponsor slot)
 (function(){
-  var bp = centerPoint(0.5, HALF_W+6), bt = tangentAt(0.5);
+  var bth = 0.5, bp = centerPoint(bth, HALF_W+6), bt = tangentAt(bth);
+  [0.85, 1.2, 0.15, 1.55].forEach(function(cand){
+    if(!inOtherWater(bp.x, bp.z, Math.round(bth/(Math.PI*2)*NS))) return;
+    bth = cand; bp = centerPoint(bth, HALF_W+6); bt = tangentAt(bth);
+  });
   var g = new THREE.Group();
   g.add(box(0.6, 7, 0.6, 0x8a6b43, -4.5, 3.5, 0));
   g.add(box(0.6, 7, 0.6, 0x8a6b43, 4.5, 3.5, 0));
@@ -410,6 +455,7 @@ for(i=0;i<9;i++){
 // Docks (decorative platforms)
 function dock(th, side){
   var p = centerPoint(th, side*(HALF_W-1.6)), t = tangentAt(th);
+  if(inOtherWater(p.x, p.z, Math.round(th/(Math.PI*2)*NS))) return;
   var g = new THREE.Group();
   g.add(box(5.5, 0.35, 3.4, 0xb08954, 0, 0.75, 0));
   [[-2.4,-1.4],[2.4,-1.4],[-2.4,1.4],[2.4,1.4]].forEach(function(o){ g.add(box(0.35,1.1,0.35, 0x8a6b43, o[0], 0.2, o[1])); });
@@ -478,6 +524,35 @@ function makeRider(kind){
     var shorts = std(0x2ec4b6);
     leg(1, shorts, skin); leg(-1, shorts, skin);
     g.userData.armPlusX = armP; g.userData.armMinusX = armM;
+  } else if(kind === 'snowbird'){
+    // The Snowbird: retired, unbothered, down from Michigan since October
+    var skin3 = std(0xf0c8a0);
+    var polo = std(0xff9ec4);
+    g.add(part(new THREE.CylinderGeometry(0.35, 0.48, 1.0, 8), polo, 0, 1.6, 0)); // pastel polo
+    g.add(part(new THREE.SphereGeometry(0.31, 10, 8), skin3, 0, 2.48, 0)); // head
+    var hairW = part(new THREE.SphereGeometry(0.33, 10, 8), std(0xe8e4da), 0, 2.6, -0.03); hairW.scale.set(1, 0.72, 1); g.add(hairW); // white cap of hair
+    g.add(part(new THREE.SphereGeometry(0.13, 7, 6), std(0xe8e4da), 0, 2.62, -0.3)); // bun
+    var visor = part(new THREE.CylinderGeometry(0.36, 0.36, 0.05, 10), std(0xff9ec4), 0, 2.62, 0.12); visor.scale.set(1, 1, 1.25); g.add(visor);
+    g.add(part(new THREE.BoxGeometry(0.44, 0.1, 0.06), std(0x14181d, { roughness:0.25, metalness:0.3 }), 0, 2.5, 0.285)); // sunglasses
+    var armP3 = arm(1, polo, skin3), armM3 = arm(-1, polo, skin3);
+    var khaki = std(0xd8c9a3);
+    leg(1, khaki, skin3); leg(-1, khaki, skin3);
+    g.userData.armPlusX = armP3; g.userData.armMinusX = armM3;
+  } else if(kind === 'mullet'){
+    // Mullet Mick: bait-shop royalty. Business up front, party in the back.
+    var skin4 = std(0xd99e63);
+    var tank = std(0xf2f0e6);
+    g.add(part(new THREE.CylinderGeometry(0.34, 0.46, 1.0, 8), tank, 0, 1.6, 0)); // white tank
+    g.add(part(new THREE.SphereGeometry(0.31, 10, 8), skin4, 0, 2.48, 0)); // head
+    g.add(part(new THREE.BoxGeometry(0.5, 0.34, 0.14), std(0x4a2f18), 0, 2.42, -0.28)); // the mullet, flowing
+    g.add(part(new THREE.BoxGeometry(0.52, 0.16, 0.5), std(0x4a2f18), 0, 2.72, -0.04)); // hair top/sides
+    g.add(part(new THREE.CylinderGeometry(0.33, 0.34, 0.16, 8), std(0xb03030), 0, 2.82, 0)); // trucker cap crown
+    g.add(part(new THREE.BoxGeometry(0.4, 0.05, 0.3), std(0xb03030), 0, 2.78, 0.36)); // cap brim
+    g.add(part(new THREE.BoxGeometry(0.3, 0.07, 0.06), std(0x4a2f18), 0, 2.34, 0.29)); // mustache
+    var armP4 = arm(1, skin4, skin4), armM4 = arm(-1, skin4, skin4);
+    var denim = std(0x3b5bdb);
+    leg(1, denim, skin4); leg(-1, denim, skin4);
+    g.userData.armPlusX = armP4; g.userData.armMinusX = armM4;
   } else {
     // Pirate rival: tricorn, beard, coat — Gasparilla energy
     var skin2 = std(0xd69c6c);
@@ -578,8 +653,24 @@ for(var si = 0; si < 42; si++){
   scene.add(sm);
   streaks.push({ m:sm, th: Math.random()*Math.PI*2, off: rand(-(HALF_W-2.2), HALF_W-2.2) });
 }
-var playerSki = makeSki(0xffd23e, 0xe63946, 'rich');
-var rivalSki = makeSki(0x9b5de5, 0x00c2c2, 'pirate');
+// ============================== ROSTER ==============================
+// Southwest Florida archetypes. Each carries one small, honest perk.
+var SPECS = {
+  rich:     { name:'BIG CHAINS', title:'Gold-Chain Royalty', perk:'SUPER fills 30% faster', superGain:1.3, dmgTaken:1, hitMul:1, topBonus:0, hull:0xffd23e, accent:0xe63946 },
+  pirate:   { name:'CAPTAIN GASPARILLA', title:'The Pirate', perk:'Hits land 25% harder', superGain:1, dmgTaken:1, hitMul:1.25, topBonus:0, hull:0x9b5de5, accent:0x00c2c2 },
+  snowbird: { name:'THE SNOWBIRD', title:'Retired & Unbothered', perk:'Takes 25% less hull damage', superGain:1, dmgTaken:0.75, hitMul:1, topBonus:0, hull:0x7fd8e8, accent:0xff9ec4 },
+  mullet:   { name:'MULLET MICK', title:'Bait-Shop Royalty', perk:'+2.5 top speed, every gear', superGain:1, dmgTaken:1, hitMul:1, topBonus:2.5, hull:0x3ecf6e, accent:0x14532d }
+};
+var ROSTER = ['rich', 'pirate', 'snowbird', 'mullet'];
+var CHAR = SPECS.rich, CHAR_KIND = 'rich';
+var SKIS = {};
+ROSTER.forEach(function(k){ SKIS[k] = makeSki(SPECS[k].hull, SPECS[k].accent, k); SKIS[k].visible = false; });
+var playerSki = SKIS.rich, rivalSki = SKIS.pirate;
+playerSki.visible = true; rivalSki.visible = true;
+// gold selection ring for the character grid
+var selRing = new THREE.Mesh(new THREE.RingGeometry(2.0, 2.6, 28), new THREE.MeshBasicMaterial({ color:0xffd23e, transparent:true, opacity:0.9, side:THREE.DoubleSide, depthWrite:false }));
+selRing.rotation.x = -Math.PI/2; selRing.position.y = 0.18; selRing.visible = false;
+scene.add(selRing);
 // Shark fin (saltwater hazard)
 var shark = new THREE.Group();
 (function(){
@@ -816,15 +907,16 @@ document.getElementById('btn-cal').addEventListener('click', function(){
   }
 });
 document.getElementById('btn-start').addEventListener('click', function(){ enableTiltThen(startRace); });
-document.getElementById('btn-drop').addEventListener('click', dropIn);
+document.getElementById('btn-drop').addEventListener('click', enterSelect);
 document.getElementById('btn-again').addEventListener('click', function(){
   document.getElementById('finish').style.display = 'none';
   startRace();
 });
 // ============================== HEALTH ==============================
+function gainSuper(a){ superMeter = Math.min(100, superMeter + a * CHAR.superGain); }
 function damagePlayer(amount, label){
   if(player.deadT > 0) return;
-  player.health -= amount;
+  player.health -= amount * CHAR.dmgTaken;
   player.sinceDmg = 0;
   if(player.health <= 0){
     player.health = 0; player.deadT = 2.6;
@@ -852,19 +944,19 @@ function doStrike(kind){
   var side = sideIn !== 0 ? sideIn : (rd < range + 2.5 ? rSide : 1);
   player.strikeT = 0.3; player.strikeSide = side; player.strikeKind = kind;
   if(rd < range && rSide === side){
-    var pts = (kind === 'punch' ? 150 : 200) * (superT > 0 ? 2 : 1);
+    var pts = Math.round((kind === 'punch' ? 150 : 200) * (superT > 0 ? 2 : 1) * CHAR.hitMul);
     rival.spinT = kind === 'punch' ? 1.1 : 1.9;
     // shove him along the canal's radial line, away from you (toward a bank)
     var c0 = centerPoint(rival.th, 0), c1 = centerPoint(rival.th, 6);
     var rdx = c1.x - c0.x, rdz = c1.z - c0.z, rl = Math.sqrt(rdx*rdx + rdz*rdz) || 1;
     var away = (rvx * rdx + rvz * rdz) / rl;
-    rival.latV += (away >= 0 ? 1 : -1) * (kind === 'punch' ? 6 : 11);
+    rival.latV += (away >= 0 ? 1 : -1) * (kind === 'punch' ? 6 : 11) * CHAR.hitMul;
     score += pts; bashCount++;
     boostMeter = Math.min(100, boostMeter + (kind === 'punch' ? 12 : 18));
-    superMeter = Math.min(100, superMeter + 15);
+    gainSuper(15);
     burst(rp.x, 1.2, rp.z, 14, 0xffffff, 4.5, 7);
     burst(rp.x, 1.2, rp.z, 5, 0xffd23e, 3, 6);
-    showMsg(kind === 'punch' ? 'PUNCH! +150' : 'SIDE KICK! +200',
+    showMsg(kind === 'punch' ? 'PUNCH! +' + pts : 'SIDE KICK! +' + pts,
             kind === 'punch' ? 'Right in the tricorn.' : 'The pirate goes sideways. Literally.', 1.3);
     shake = Math.max(shake, kind === 'punch' ? 0.18 : 0.3);
     return;
@@ -895,7 +987,7 @@ function useItem(){
     tiltBoostT = 2;
     showMsg('CITRUS CELL!', 'Florida sunshine, weaponized.', 1.2);
   } else if(t.id === 'rum'){
-    superMeter = Math.min(100, superMeter + 50);
+    gainSuper(50);
     showMsg('', 'GASPARILLA RUM — super charge +50.', 1.3);
   } else if(t.id === 'stink'){
     var fx = Math.sin(player.h), fz = Math.cos(player.h);
@@ -933,6 +1025,61 @@ function dropIn(){
   swoopT = 0;
   state = 'swoop';
 }
+// ============================== CHARACTER SELECT ==============================
+// After the open (the map), the four riders wait on a starting grid.
+// Pick one, confirm, and the camera swoops down behind YOUR rider.
+var GRID_TH = 0.10, SEL_KIND = 'rich';
+// a real starting grid: two rows of two, rivals up front
+var GRID_POS = [ { dth:0, lat:-4.6 }, { dth:0, lat:4.6 }, { dth:0.035, lat:-4.6 }, { dth:0.035, lat:4.6 } ];
+function placeGridMeshes(time){
+  var gt = tangentAt(GRID_TH), gh = headingOfTangent(gt);
+  ROSTER.forEach(function(k, idx){
+    var gp = centerPoint(GRID_TH + GRID_POS[idx].dth, GRID_POS[idx].lat);
+    var sel = (k === SEL_KIND);
+    SKIS[k].position.set(gp.x, 0.14 + Math.sin(time*2 + idx*1.3)*0.05 + (sel ? 0.12 + Math.sin(time*3.2)*0.05 : 0), gp.z);
+    SKIS[k].rotation.set(0, gh, 0);
+    if(sel) selRing.position.set(gp.x, 0.18, gp.z);
+  });
+}
+function enterSelect(){
+  if(state !== 'map') return;
+  document.getElementById('mapcard').style.display = 'none';
+  ROSTER.forEach(function(k){ SKIS[k].visible = true; });
+  selRing.visible = true;
+  selectRider(CHAR_KIND);
+  document.getElementById('select').style.display = 'block';
+  state = 'select';
+}
+function selectRider(k){
+  SEL_KIND = k;
+  var cards = document.querySelectorAll('.card');
+  for(var i = 0; i < cards.length; i++) cards[i].classList.toggle('sel', cards[i].getAttribute('data-k') === k);
+  document.getElementById('btn-rider').textContent = 'RIDE AS ' + SPECS[k].name;
+}
+function confirmRider(){
+  if(state !== 'select') return;
+  CHAR_KIND = SEL_KIND; CHAR = SPECS[SEL_KIND];
+  var rk = SEL_KIND === 'pirate' ? 'rich' : 'pirate';
+  playerSki = SKIS[SEL_KIND]; rivalSki = SKIS[rk];
+  ROSTER.forEach(function(k){ SKIS[k].visible = (k === SEL_KIND || k === rk); });
+  selRing.visible = false;
+  document.getElementById('select').style.display = 'none';
+  resetRace();
+  swoopFrom.copy(camera.position);
+  swoopT = 0;
+  state = 'swoop';
+}
+(function buildCards(){
+  var wrap = document.getElementById('cards');
+  ROSTER.forEach(function(k){
+    var d = document.createElement('div');
+    d.className = 'card'; d.setAttribute('data-k', k);
+    d.innerHTML = '<div class="cn">' + SPECS[k].name + '</div><div class="ct">' + SPECS[k].title + '</div><div class="cp">' + SPECS[k].perk + '</div>';
+    d.addEventListener('click', function(){ selectRider(k); });
+    wrap.appendChild(d);
+  });
+  document.getElementById('btn-rider').addEventListener('click', confirmRider);
+})();
 // ============================== UPDATE ==============================
 function dist2(ax, az, bx, bz){ var dx = ax-bx, dz = az-bz; return dx*dx + dz*dz; }
 function update(dt, time){
@@ -992,7 +1139,7 @@ function update(dt, time){
     player.h += dt * 9;
     player.speed = Math.max(0, player.speed - 30*dt);
   } else {
-    var maxSp = superT > 0 ? 58 : (boosting ? 48 : 34);
+    var maxSp = (superT > 0 ? 58 : (boosting ? 48 : 34)) + CHAR.topBonus;
     if(throttleIn) player.speed += 26*throttleIn*dt;
     if(brakeIn) player.speed -= 30*brakeIn*dt;
     player.speed -= player.speed * 0.42 * dt;
@@ -1021,7 +1168,7 @@ function update(dt, time){
     lap++;
     if(lap > 3){ finishRace(); }
     else {
-      superMeter = Math.min(100, superMeter + 20);
+      gainSuper(20);
       showMsg('LAP ' + lap, lap === 3 ? 'Final lap — bring it home!' : 'The canal provides.', 1.6);
       posts.forEach(function(p){ p.broken = false; p.mesh.visible = true; });
       sacks.forEach(function(s){ s.taken = false; s.mesh.visible = true; });
@@ -1089,7 +1236,7 @@ function update(dt, time){
   player.bashCD -= dt;
   if(player.spinT <= 0 && player.bashCD <= 0 && dist2(player.x, player.z, rp.x, rp.z) < 11.5){
     rival.spinT = 1.7; player.bashCD = 2.2; bashCount++;
-    score += 250; boostMeter = Math.min(100, boostMeter + 30); superMeter = Math.min(100, superMeter + 25);
+    score += 250; boostMeter = Math.min(100, boostMeter + 30); gainSuper(25);
     burst(rp.x, 1, rp.z, 16, 0xffffff, 4.5, 7);
     burst(rp.x, 1, rp.z, 6, 0xffd23e, 3, 6);
     showMsg('PIRATE BASHED! +250', 'Gasparilla sends his regards.', 1.5);
@@ -1125,7 +1272,7 @@ function update(dt, time){
       score += 100; boostMeter = Math.min(100, boostMeter + 10);
       burst(p.x, 1, p.z, 10, 0xa4713e, 4, 6.5);
       burst(p.x, 0.5, p.z, 6, 0xffffff, 3, 5);
-      superMeter = Math.min(100, superMeter + 10);
+      gainSuper(10);
       showMsg('', 'DOCK POST BASHED +100', 1.1);
     }
   });
@@ -1133,7 +1280,7 @@ function update(dt, time){
   sacks.forEach(function(s){
     if(!s.taken && dist2(player.x, player.z, s.x, s.z) < 6.8){
       s.taken = true; s.mesh.visible = false;
-      score += 50; boostMeter = Math.min(100, boostMeter + 8); superMeter = Math.min(100, superMeter + 10);
+      score += 50; boostMeter = Math.min(100, boostMeter + 8); gainSuper(10);
       burst(s.x, 0.8, s.z, 8, 0xf7f3e3, 3, 5.5);
       showMsg('', 'FLOUR SACK +50 — a Rosen lot marker, claimed from the air.', 1.3);
     }
@@ -1153,7 +1300,7 @@ function update(dt, time){
       rival.spinT = 1.6;
       scene.remove(trp.mesh); traps.splice(ti, 1);
       burst(trp.x, 0.8, trp.z, 12, 0x5f7a2a, 4, 6);
-      score += 100; superMeter = Math.min(100, superMeter + 10);
+      score += 100; gainSuper(10);
       showMsg('STINK BOMB!', 'The pirate got a face full of Skunk Ape.', 1.5);
     }
   }
@@ -1172,6 +1319,8 @@ function update(dt, time){
   if(subT > 0){ subT -= dt; if(subT <= 0) document.getElementById('submsg').style.opacity = 0; }
 }
 function placeSkiMeshes(time){
+  if(state === 'select'){ placeGridMeshes(time); }
+  else {
   var bob = Math.sin(time*3.1)*0.06;
   playerSki.position.set(player.x, 0.12 + bob, player.z);
   playerSki.rotation.set(0, player.h, 0);
@@ -1197,6 +1346,7 @@ function placeSkiMeshes(time){
   rivalSki.position.set(rp.x, 0.12 + Math.sin(time*3.4+1)*0.06, rp.z);
   var rt = tangentAt(rival.th);
   rivalSki.rotation.set(0, headingOfTangent(rt) + (rival.spinT > 0 ? (1.7 - rival.spinT) * 9 : 0), 0);
+  }
   sacks.forEach(function(s){ if(!s.taken){ s.mesh.position.y = s.baseY + Math.sin(time*2 + s.th*3)*0.12; s.mesh.rotation.y += 0.01; } });
   itemPickups.forEach(function(s){ if(!s.taken){ s.mesh.position.y = s.baseY + Math.sin(time*2.4 + s.th*3)*0.14; s.mesh.rotation.y += 0.02; } });
   buoys.forEach(function(b){ b.g.position.y = Math.sin(time*1.7 + b.ph)*0.14; b.g.rotation.z = Math.sin(time*1.3 + b.ph)*0.06; });
@@ -1227,7 +1377,16 @@ function placeSkiMeshes(time){
     var ma = -0.9 + mapT * 0.05;
     camera.position.set(Math.sin(ma)*MAP_R, MAP_H, Math.cos(ma)*MAP_R);
     camera.lookAt(0, 0, 0);
-    if(mapT > 7) dropIn();
+    if(mapT > 7) enterSelect();
+    return;
+  }
+  if(state === 'select'){ // settle down to the starting grid, front three-quarter
+    var gc = centerPoint(GRID_TH, 0), gt2 = tangentAt(GRID_TH);
+    var gx = gc.x + gt2.x*3.5 + gt2.z*8.5, gz = gc.z + gt2.z*3.5 - gt2.x*8.5;
+    camera.position.x += (gx - camera.position.x) * 0.12;
+    camera.position.z += (gz - camera.position.z) * 0.12;
+    camera.position.y += (3.4 - camera.position.y) * 0.12;
+    camera.lookAt(gc.x, 1.5, gc.z);
     return;
   }
   if(state === 'swoop'){ // the dive from map to rider
@@ -1279,7 +1438,7 @@ function finishRace(){
   document.getElementById('fin-title').innerHTML = won ? 'YOU WIN THE CANAL!' : 'THE PIRATE TAKES IT';
   document.getElementById('fin-stats').innerHTML =
     'Time <b>' + document.getElementById('hud-time').textContent + '</b> &middot; Score <b>' + score + '</b><br>' +
-    'Pirate bashes <b>' + bashCount + '</b> &middot; ' + (won ? 'The gold chain reigns supreme.' : 'He is still out there. Taunting.');
+    'Pirate bashes <b>' + bashCount + '</b> &middot; ' + (won ? CHAR.name + ' reigns supreme.' : 'He is still out there. Taunting.');
   document.getElementById('finish').style.display = 'flex';
   showMsg('', '', 0.1);
 }
